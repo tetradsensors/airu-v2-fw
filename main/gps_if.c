@@ -191,8 +191,6 @@ esp_err_t parse(char *nmea) {
 	long minutes;
 	char degreebuff[10];
 
-	ESP_LOGI(TAG, "%s", nmea);
-
 	if (strstr(nmea, "$GPGGA")) {
 		char *p = nmea;
 		// get time
