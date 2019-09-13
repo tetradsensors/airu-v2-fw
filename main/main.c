@@ -154,6 +154,7 @@ void data_task()
 	struct tm tm;
 	char strftime_buf[64];
 	uint8_t min, sec, system_time;
+	int ping_cntr = 0;
 
 	// only need to get it once
 	esp_app_desc_t *app_desc = esp_ota_get_app_description();
@@ -239,8 +240,12 @@ void data_task()
 
 		free(pkt);
 
-		/* this is a good place to do a ping test */
-		wifi_manager_check_connection_async();
+		/* this is a good place to do a ping test (no more often than 15 minutes)*/
+		if(++ping_cntr * CONFIG_DATA_UPLOAD_PERIOD >= 900){
+			wifi_manager_check_connection_async();
+			ping_cntr = 0;
+		}
+		ESP_LOGI(TAG, "Ping count: %d * %d = %d", ping_cntr, CONFIG_DATA_UPLOAD_PERIOD, CONFIG_DATA_UPLOAD_PERIOD * ping_cntr);
 	}
 }
 
