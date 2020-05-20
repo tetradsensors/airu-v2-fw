@@ -18,6 +18,7 @@
 #define OTA_REQUEST_BIT BIT1		/* OTA request recieved over MQTT */
 
 EventGroupHandle_t wifi_event_group;
+extern SemaphoreHandle_t mqtt_sd_mutex;
 
 /*
 * @brief	Delete the caller task and loop ad-infinitum

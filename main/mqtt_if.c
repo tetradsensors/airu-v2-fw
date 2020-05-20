@@ -23,7 +23,7 @@
 #include "mqtt_client.h"
 #include "ota_if.h"
 #include "mqtt_if.h"
-#include "wifi_manager.h"
+// #include "wifi_manager.h"
 #include "hdc1080_if.h"
 #include "mics4514_if.h"
 #include "time_if.h"
@@ -32,6 +32,8 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "jwt_if.h"
+#include "app_utils.h"
+#include "sd_if.h"
 
 
 // #define WIFI_CONNECTED_BIT 	BIT0
@@ -58,7 +60,8 @@ char* JWT_PASSWORD;
 
 //*******ENSURE THIS IS CORRECT********************************************************************
 //static const char* PROJECT_ID = "scottgale";
-static const char* PROJECT_ID = "aqandu-184820";
+// static const char* PROJECT_ID = "aqandu-184820";
+static const char* PROJECT_ID = "tetrad-iot";
 //static const char* PROJECT_ID = "airquality-272118";
 
 //*************************************************************************************************
@@ -88,7 +91,8 @@ void MQTT_Initialize(void)
 	//wifi_manager_wait_internet_access();
 	wifi_manager_wait_internet_access_and_AP();
 	printf("PASSED wifi_manager_wait_internet_access_and_AP()\n");
-	xTaskCreate(&mqtt_task, "mqtt_task", 16000, NULL, 2, task_mqtt);
+	// mqtt_sd_mutex = xSemaphoreCreateMutex();
+	xTaskCreate(&mqtt_task, "mqtt_task", 13000 , NULL, 2, task_mqtt);
 }
 
 /*
@@ -113,7 +117,9 @@ time_t mqtt_last_publish_time(){
 */
 static esp_mqtt_client_config_t getMQTT_Config(){
 
+	printf("free heap 1: %d\n",esp_get_free_heap_size());
 	JWT_PASSWORD = createGCPJWT(PROJECT_ID, rsaprivate_pem_start, strlen((char*)rsaprivate_pem_start)+1);
+	printf("free heap 2: %d\n",esp_get_free_heap_size());
 
 	esp_mqtt_client_config_t mqtt_cfg = {
 		.client_id = client_ID,
@@ -128,6 +134,7 @@ static esp_mqtt_client_config_t getMQTT_Config(){
 		.keepalive = KEEPALIVE_TIME,
 		.disable_auto_reconnect = true
 	};
+	printf("free heap 3: %d\n",esp_get_free_heap_size());		
 	return mqtt_cfg;
 }
 
@@ -151,7 +158,9 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 	   case MQTT_EVENT_CONNECTED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 		   client_connected = true;
+		   printf("free heap (00): %d\n",esp_get_free_heap_size());
 		   free(JWT_PASSWORD);										// This frees the memory allocated in jwt_if.c
+		   printf("free heap (11): %d\n",esp_get_free_heap_size());
 		   const char mqtt_topic_helper1[] = "/devices/M";			// Helper char[] to create subscription strings for subscriptions
 		   const char mqtt_topic_helper2[] = "/config";
 		   const char mqtt_topic_helper3[] = "/commands/#";
@@ -167,7 +176,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 		   snprintf(mqtt_subscribe_topic, sizeof(mqtt_subscribe_topic), "%s%s%s", mqtt_topic_helper1, DEVICE_MAC, mqtt_topic_helper3);
 		   msg_id = esp_mqtt_client_subscribe(this_client, mqtt_subscribe_topic, 0);	// QOS 0 - No guarantee (best effort only)
 		   ESP_LOGI(TAG, "Subscribing to %s, msg_id=%d", mqtt_subscribe_topic, msg_id);
-
+			printf("free heap (22): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_DISCONNECTED:
@@ -178,6 +187,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 
 	   case MQTT_EVENT_SUBSCRIBED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+		printf("free heap (33): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_UNSUBSCRIBED:
@@ -186,6 +196,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 
 	   case MQTT_EVENT_PUBLISHED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+		   printf("free heap (44): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_DATA:
@@ -215,6 +226,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 				   }
 			   }
 		   }
+		   printf("free heap (55): %d\n",esp_get_free_heap_size());
 		   break;
 	   case MQTT_EVENT_ERROR:
 		   ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -238,6 +250,14 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 void mqtt_task(void* pvParameters){
 	ESP_LOGI(TAG, "Starting mqtt_task ...");
 
+	// Variables that hold sensor data (variables that begin with pub_ store previously published data)
+	static pm_data_t pub_pm_dat, pm_dat;
+	static double pub_temp, temp, pub_hum, hum;
+	static uint16_t pub_co, co, pub_nox, nox;
+	static esp_gps_t pub_gps, gps;
+	static float version_number = 2.3;				// First digit = PCB hardware, second digit = pm sensor
+	static char mqtt_pkt[MQTT_PKT_LEN] = {0};		// Clear packet char[]
+
 	mqtt_event_group = xEventGroupCreate();
 	xEventGroupClearBits(mqtt_event_group, OTA_COMPLETE);
 
@@ -247,15 +267,6 @@ void mqtt_task(void* pvParameters){
 	float co_delta = 30.0;			// CO
 	float gps_delta = 0.05;			// GPS
 
-	// Variables that hold sensor data (variables that begin with pub_ store previously published data)
-	static pm_data_t pub_pm_dat, pm_dat;
-	static double pub_temp, temp, pub_hum, hum;
-	static uint16_t pub_co, co, pub_nox, nox;
-	static esp_gps_t pub_gps, gps;
-	static float version_number = 2.3;				// First digit = PCB hardware, second digit = pm sensor
-
-	static char mqtt_pkt[MQTT_PKT_LEN] = {0};		// Clear packet char[]
-
 	uint8_t tmp[6];									// Save MAC address for use in client_ID and mqtt_topic
 	esp_efuse_mac_get_default(tmp);
 	sprintf(DEVICE_MAC, "%02X%02X%02X%02X%02X%02X", tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5]);
@@ -263,7 +274,7 @@ void mqtt_task(void* pvParameters){
 	// Generate client_ID . . . includes MAC Address as "IoT Device ID"
 	const char mqtt_client_helper1[] = "projects/";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
-	const char mqtt_client_helper2[] = "/locations/us-central1/registries/airu-sensor-registry/devices/M";
+	const char mqtt_client_helper2[] = "/locations/us-central1/registries/slcc/devices/M";
 	//const char mqtt_client_helper2[] = "/locations/us-central1/registries/airquality/devices/M";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
 	snprintf(client_ID, sizeof(client_ID), "%s%s%s%s", mqtt_client_helper1, PROJECT_ID, mqtt_client_helper2, DEVICE_MAC);
@@ -272,8 +283,8 @@ void mqtt_task(void* pvParameters){
 	// Generate mqtt_topic
 	const char mqtt_topic_helper1[] = "/devices/M";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
-	const char mqtt_topic_helper2[] = "/events/airU";
-	//const char mqtt_topic_helper2[] = "/events/data";
+	// const char mqtt_topic_helper2[] = "/events/airU";
+	const char mqtt_topic_helper2[] = "/events/slcc";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
 	const char mqtt_topic_helper3[] = "/state";
 	snprintf(mqtt_topic, sizeof(mqtt_topic), "%s%s%s", mqtt_topic_helper1, DEVICE_MAC, mqtt_topic_helper2);
@@ -295,17 +306,20 @@ void mqtt_task(void* pvParameters){
 	GPS_Poll(&pub_gps);
 	int publish_flag = 1; 							// set to 1 by time (PUBLISH_SECONDS) OR change in data defined by delta variable above
 	int loop_counter = 12;							// Initialize to 12 to trigger publication on 1st iteration
-	vTaskDelay(30000 / portTICK_PERIOD_MS);			// wifi configuration time
-
+	printf("free heap (aa): %d\n",esp_get_free_heap_size());
+	vTaskDelay(10000 / portTICK_PERIOD_MS);			// wifi configuration time
+	printf("free heap (bb): %d\n",esp_get_free_heap_size());
 	while(wifi_manager_connected_to_access_point() && client_connected) {
 		if (service_ota) {												// perform ota update if required
 			ota_trigger();
 			xEventGroupWaitBits(mqtt_event_group, OTA_COMPLETE, pdTRUE, pdTRUE, portMAX_DELAY);	// block until OTA update is complete
 			service_ota = false;
+			printf("free heap (cc): %d\n",esp_get_free_heap_size());
 
 		}
 		current_time = time(NULL);					// Get the current time for the packet
 
+		printf("free heap (dd): %d\n",esp_get_free_heap_size());
 		printf("current_time: %d, ", (uint32_t)current_time);
 		printf("reconnect_time: %d, ", reconnect_time);
 		printf("last_publish_time: %d\n", (uint32_t)last_publish_time);
@@ -314,13 +328,15 @@ void mqtt_task(void* pvParameters){
 			esp_mqtt_client_destroy(client);						// Stop the mqtt client and free all the memory
 			vTaskDelay(20000 / portTICK_PERIOD_MS);					// Allow time for disconnect to propagate through system (MQTT)
 			MQTT_Connect();
+			printf("free heap (ee): %d\n",esp_get_free_heap_size());
 		}
-		else {														// Get and send data packet
+		else {		
+			printf("free heap (ff): %d\n",esp_get_free_heap_size());												// Get and send data packet
 			PMS_Poll(&pm_dat);
 			HDC1080_Poll(&temp, &hum);
 			MICS4514_Poll(&co, &nox);
 			GPS_Poll(&gps);
-
+			printf("free heap (gg): %d\n",esp_get_free_heap_size());
 			// Check to see if new data is different from last published data
 			if(fabs(pm_dat.pm1-pub_pm_dat.pm1) >= pm_delta)
 				publish_flag = 1;
@@ -346,31 +362,54 @@ void mqtt_task(void* pvParameters){
 
 			printf("publish_flag: %d, ", publish_flag);
 			printf("loop_counter: %d\n", loop_counter);
-
+			
+			printf("free heap (a): %d\n",esp_get_free_heap_size());
+			
 			if (publish_flag > 0) {
 				publish_flag = 0;							// Reset publish_flag
 				loop_counter = 0;							// Reset loop_counter
 				memset(mqtt_pkt, 0, MQTT_PKT_LEN);			// Clear contents of packet
-				sprintf(mqtt_pkt, "{\"DEVICE_ID\": \"M%s\", \"TIMESTAMP\": %ld, \"PM1\": %.2f, \"PM25\": %.2f, \"PM10\": %.2f, " \
+				sprintf(mqtt_pkt, "{\"DEVICE_ID\": \"M%s\", \"TIMESTAMP\": %ld, \"PM1\": %.2f, \"PM2_5\": %.2f, \"PM10\": %.2f, " \
 				"\"TEMP\": %.2f, \"HUM\": %.2f, \"CO\": %d, \"NOX\": %d, \"LAT\": %.4f, \"LON\": %.4f, \"ALT\": %.1f, \"VER\": %.1f}", \
 				DEVICE_MAC, current_time, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox, gps.lat, gps.lon, gps.alt, version_number);
 
+				printf("free heap (b): %d\n",esp_get_free_heap_size());
 				MQTT_Publish(mqtt_topic, mqtt_pkt);
+				printf("free heap (c): %d\n",esp_get_free_heap_size());
+
+				// SD_Initialize();
+				// memset(mqtt_pkt, 0, MQTT_PKT_LEN);
+				// sprintf(mqtt_pkt, SD_PKT, gps.hour, gps.min, gps.sec, DEVICE_MAC, gps.alt, gps.lat, gps.lon, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox);
+				// ESP_LOGI(TAG, "%s", mqtt_pkt);
+				// sd_write_data(mqtt_pkt, gps.year, gps.month, gps.day);
+				// sd_deinit();
+
 				pub_pm_dat = pm_dat;
 				pub_temp = temp;
 				pub_hum = hum;
 				pub_co = co;
 				pub_gps = gps;
 			}
+			printf("free heap (d): %d\n",esp_get_free_heap_size());
 			// Publish state consists of current firmware version saved in NVS
 			// It is important that state gets published every 5 minutes as a backup to keep the connection with Google alive.
 			get_firmware_version();
-			snprintf(current_state, sizeof(current_state), "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%d, OTA:%d", \
-					firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access(), ota_successful);
+			printf("free heap (e): %d\n",esp_get_free_heap_size());
+			// snprintf(current_state, sizeof(current_state), "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c, OTA:%c", firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access(), (char)ota_successful);
+			sprintf(current_state, "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c", \
+					firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access());
+			printf("free heap (f): %d\n",esp_get_free_heap_size());
 			MQTT_Publish(mqtt_state_topic, current_state);
+			printf("free heap (g): %d\n",esp_get_free_heap_size());
 			loop_counter++;
 		}
-		vTaskDelay(300000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
+		printf("free heap (mqtt): %d\n",esp_get_free_heap_size());		
+		// vTaskDelay(300000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
+		vTaskDelay(10000 / portTICK_PERIOD_MS);
+
+		int a = uxTaskGetStackHighWaterMark(NULL);
+		printf("stack highwater mark: %d\n", a);
+
 	} // End while(1)
 	esp_restart();									// Restart if exit the while loop
 }
@@ -415,8 +454,11 @@ void MQTT_Connect(void)
 	// Connect to Google IoT
 	ESP_LOGI(TAG, "Connecting to Google IoT MQTT broker ...");
 	esp_mqtt_client_config_t mqtt_cfg = getMQTT_Config();
+	printf("free heap 4: %d\n",esp_get_free_heap_size());		
 	client = esp_mqtt_client_init(&mqtt_cfg);
+	printf("free heap 5: %d\n",esp_get_free_heap_size());		
 	esp_mqtt_client_start(client);
+	printf("free heap 6: %d\n",esp_get_free_heap_size());		
 }
 
 /*
@@ -428,6 +470,8 @@ void MQTT_Connect(void)
 */
 void MQTT_Publish(const char* topic, const char* msg)
 {
+	ESP_LOGI(TAG, ">>> MQTT Publish taking mutex...");
+	// xSemaphoreTake(mqtt_sd_mutex, portMAX_DELAY);
 	int msg_id = esp_mqtt_client_publish(client, topic, msg, strlen(msg), 0, 0);
 	ESP_LOGI(TAG, "Sent packet: %s\nTopic: %s\tmsg_id=%d", msg, topic, msg_id);
 	if (msg_id == 0){
@@ -438,6 +482,7 @@ void MQTT_Publish(const char* topic, const char* msg)
 		client_connected = false;
 		esp_restart();
 	}
+	ESP_LOGI(TAG, "<<< MQTT Publish giving mutex...");
 }
 
 /*

@@ -195,6 +195,7 @@ void wifi_manager_json_status_update(update_reason_code_t statusCode) {
 		/* Even if someone were to furiously refresh a web resource that needs the json mutex,
 		 * it seems impossible that this thread cannot obtain the mutex. Abort here is reasonnable.
 		 */
+		printf("Abort?\n");
 		abort();
 	}
 
