@@ -23,7 +23,7 @@
 #include "mqtt_client.h"
 #include "ota_if.h"
 #include "mqtt_if.h"
-// #include "wifi_manager.h"
+#include "wifi_manager.h"
 #include "hdc1080_if.h"
 #include "mics4514_if.h"
 #include "time_if.h"
@@ -397,7 +397,7 @@ void mqtt_task(void* pvParameters){
 			printf("free heap (e): %d\n",esp_get_free_heap_size());
 			// snprintf(current_state, sizeof(current_state), "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c, OTA:%c", firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access(), (char)ota_successful);
 			sprintf(current_state, "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c", \
-					firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access());
+					firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)0);
 			printf("free heap (f): %d\n",esp_get_free_heap_size());
 			MQTT_Publish(mqtt_state_topic, current_state);
 			printf("free heap (g): %d\n",esp_get_free_heap_size());
