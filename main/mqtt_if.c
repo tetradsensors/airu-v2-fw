@@ -117,9 +117,7 @@ time_t mqtt_last_publish_time(){
 */
 static esp_mqtt_client_config_t getMQTT_Config(){
 
-	printf("free heap 1: %d\n",esp_get_free_heap_size());
 	JWT_PASSWORD = createGCPJWT(PROJECT_ID, rsaprivate_pem_start, strlen((char*)rsaprivate_pem_start)+1);
-	printf("free heap 2: %d\n",esp_get_free_heap_size());
 
 	esp_mqtt_client_config_t mqtt_cfg = {
 		.client_id = client_ID,
@@ -134,7 +132,6 @@ static esp_mqtt_client_config_t getMQTT_Config(){
 		.keepalive = KEEPALIVE_TIME,
 		.disable_auto_reconnect = true
 	};
-	printf("free heap 3: %d\n",esp_get_free_heap_size());		
 	return mqtt_cfg;
 }
 
@@ -158,9 +155,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 	   case MQTT_EVENT_CONNECTED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
 		   client_connected = true;
-		   printf("free heap (00): %d\n",esp_get_free_heap_size());
 		   free(JWT_PASSWORD);										// This frees the memory allocated in jwt_if.c
-		   printf("free heap (11): %d\n",esp_get_free_heap_size());
 		   const char mqtt_topic_helper1[] = "/devices/M";			// Helper char[] to create subscription strings for subscriptions
 		   const char mqtt_topic_helper2[] = "/config";
 		   const char mqtt_topic_helper3[] = "/commands/#";
@@ -176,7 +171,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 		   snprintf(mqtt_subscribe_topic, sizeof(mqtt_subscribe_topic), "%s%s%s", mqtt_topic_helper1, DEVICE_MAC, mqtt_topic_helper3);
 		   msg_id = esp_mqtt_client_subscribe(this_client, mqtt_subscribe_topic, 0);	// QOS 0 - No guarantee (best effort only)
 		   ESP_LOGI(TAG, "Subscribing to %s, msg_id=%d", mqtt_subscribe_topic, msg_id);
-			printf("free heap (22): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_DISCONNECTED:
@@ -187,7 +181,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 
 	   case MQTT_EVENT_SUBSCRIBED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-		printf("free heap (33): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_UNSUBSCRIBED:
@@ -196,7 +189,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 
 	   case MQTT_EVENT_PUBLISHED:
 		   ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
-		   printf("free heap (44): %d\n",esp_get_free_heap_size());
 		   break;
 
 	   case MQTT_EVENT_DATA:
@@ -226,7 +218,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 				   }
 			   }
 		   }
-		   printf("free heap (55): %d\n",esp_get_free_heap_size());
 		   break;
 	   case MQTT_EVENT_ERROR:
 		   ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -265,6 +256,7 @@ void mqtt_task(void* pvParameters){
 	float pm_delta = 0.25;			// All PM data
 	float minor_delta = 1.0;		// Temp, Humidity, NOX
 	float co_delta = 30.0;			// CO
+	float nox_delta= 10.0;			// NOx
 	float gps_delta = 0.05;			// GPS
 
 	uint8_t tmp[6];									// Save MAC address for use in client_ID and mqtt_topic
@@ -306,20 +298,16 @@ void mqtt_task(void* pvParameters){
 	GPS_Poll(&pub_gps);
 	int publish_flag = 1; 							// set to 1 by time (PUBLISH_SECONDS) OR change in data defined by delta variable above
 	int loop_counter = 12;							// Initialize to 12 to trigger publication on 1st iteration
-	printf("free heap (aa): %d\n",esp_get_free_heap_size());
 	vTaskDelay(10000 / portTICK_PERIOD_MS);			// wifi configuration time
-	printf("free heap (bb): %d\n",esp_get_free_heap_size());
 	while(wifi_manager_connected_to_access_point() && client_connected) {
 		if (service_ota) {												// perform ota update if required
 			ota_trigger();
 			xEventGroupWaitBits(mqtt_event_group, OTA_COMPLETE, pdTRUE, pdTRUE, portMAX_DELAY);	// block until OTA update is complete
 			service_ota = false;
-			printf("free heap (cc): %d\n",esp_get_free_heap_size());
 
 		}
 		current_time = time(NULL);					// Get the current time for the packet
 
-		printf("free heap (dd): %d\n",esp_get_free_heap_size());
 		printf("current_time: %d, ", (uint32_t)current_time);
 		printf("reconnect_time: %d, ", reconnect_time);
 		printf("last_publish_time: %d\n", (uint32_t)last_publish_time);
@@ -328,15 +316,12 @@ void mqtt_task(void* pvParameters){
 			esp_mqtt_client_destroy(client);						// Stop the mqtt client and free all the memory
 			vTaskDelay(20000 / portTICK_PERIOD_MS);					// Allow time for disconnect to propagate through system (MQTT)
 			MQTT_Connect();
-			printf("free heap (ee): %d\n",esp_get_free_heap_size());
 		}
 		else {		
-			printf("free heap (ff): %d\n",esp_get_free_heap_size());												// Get and send data packet
 			PMS_Poll(&pm_dat);
 			HDC1080_Poll(&temp, &hum);
 			MICS4514_Poll(&co, &nox);
 			GPS_Poll(&gps);
-			printf("free heap (gg): %d\n",esp_get_free_heap_size());
 			// Check to see if new data is different from last published data
 			if(fabs(pm_dat.pm1-pub_pm_dat.pm1) >= pm_delta)
 				publish_flag = 1;
@@ -356,15 +341,14 @@ void mqtt_task(void* pvParameters){
 				publish_flag = 8;
 			else if (fabs(gps.lon-pub_gps.lon) >= gps_delta)
 				publish_flag = 9;
-			else if (loop_counter >= 12){
+			else if (loop_counter >= 12)
 				publish_flag = 10;
-			}
+			else if (fabs(nox-pub_nox >= nox_delta))
+				publish_flag = 11;
 
 			printf("publish_flag: %d, ", publish_flag);
 			printf("loop_counter: %d\n", loop_counter);
-			
-			printf("free heap (a): %d\n",esp_get_free_heap_size());
-			
+						
 			if (publish_flag > 0) {
 				publish_flag = 0;							// Reset publish_flag
 				loop_counter = 0;							// Reset loop_counter
@@ -373,9 +357,7 @@ void mqtt_task(void* pvParameters){
 				"\"TEMP\": %.2f, \"HUM\": %.2f, \"CO\": %d, \"NOX\": %d, \"LAT\": %.4f, \"LON\": %.4f, \"ALT\": %.1f, \"VER\": %.1f}", \
 				DEVICE_MAC, current_time, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox, gps.lat, gps.lon, gps.alt, version_number);
 
-				printf("free heap (b): %d\n",esp_get_free_heap_size());
 				MQTT_Publish(mqtt_topic, mqtt_pkt);
-				printf("free heap (c): %d\n",esp_get_free_heap_size());
 
 				// SD_Initialize();
 				// memset(mqtt_pkt, 0, MQTT_PKT_LEN);
@@ -388,27 +370,19 @@ void mqtt_task(void* pvParameters){
 				pub_temp = temp;
 				pub_hum = hum;
 				pub_co = co;
+				pub_nox = nox;
 				pub_gps = gps;
 			}
-			printf("free heap (d): %d\n",esp_get_free_heap_size());
 			// Publish state consists of current firmware version saved in NVS
 			// It is important that state gets published every 5 minutes as a backup to keep the connection with Google alive.
 			get_firmware_version();
-			printf("free heap (e): %d\n",esp_get_free_heap_size());
 			// snprintf(current_state, sizeof(current_state), "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c, OTA:%c", firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)wifi_manager_wait_internet_access(), (char)ota_successful);
 			sprintf(current_state, "%s, Loop:%d, Time:%d, Reconnect:%d, Last Publish:%d, WiFi:%c", \
 					firmware_version, loop_counter, (uint32_t)current_time, reconnect_time, (uint32_t)last_publish_time, (int)0);
-			printf("free heap (f): %d\n",esp_get_free_heap_size());
 			MQTT_Publish(mqtt_state_topic, current_state);
-			printf("free heap (g): %d\n",esp_get_free_heap_size());
 			loop_counter++;
 		}
-		printf("free heap (mqtt): %d\n",esp_get_free_heap_size());		
-		// vTaskDelay(300000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
-		vTaskDelay(10000 / portTICK_PERIOD_MS);
-
-		int a = uxTaskGetStackHighWaterMark(NULL);
-		printf("stack highwater mark: %d\n", a);
+		vTaskDelay(60000 / portTICK_PERIOD_MS);	// Time in milliseconds. 60000 = 1 minute
 
 	} // End while(1)
 	esp_restart();									// Restart if exit the while loop
@@ -454,11 +428,8 @@ void MQTT_Connect(void)
 	// Connect to Google IoT
 	ESP_LOGI(TAG, "Connecting to Google IoT MQTT broker ...");
 	esp_mqtt_client_config_t mqtt_cfg = getMQTT_Config();
-	printf("free heap 4: %d\n",esp_get_free_heap_size());		
 	client = esp_mqtt_client_init(&mqtt_cfg);
-	printf("free heap 5: %d\n",esp_get_free_heap_size());		
 	esp_mqtt_client_start(client);
-	printf("free heap 6: %d\n",esp_get_free_heap_size());		
 }
 
 /*

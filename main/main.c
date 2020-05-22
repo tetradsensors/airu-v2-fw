@@ -308,17 +308,14 @@ void sd_task(void *pvParameters)
 	static double temp, hum;
 	static uint16_t co, nox;
 	static esp_gps_t gps;
-	static char pkt[250];
-	
-	printf("free heap (sd0): %d\n",esp_get_free_heap_size());
+	static char pkt[256];
 
 	SD_Initialize();
 
-	printf("free heap (sd1): %d\n",esp_get_free_heap_size());
 	while(1)
 	{
 		ESP_LOGI(TAG, "SD task waiting...");
-		vTaskDelay(10000 / portTICK_PERIOD_MS);
+		vTaskDelay(60000 / portTICK_PERIOD_MS);
 		ESP_LOGI(TAG, "SD task running...");
 		
 		PMS_Poll(&pm_dat);
@@ -326,16 +323,11 @@ void sd_task(void *pvParameters)
 		MICS4514_Poll(&co, &nox);
 		GPS_Poll(&gps);
 
-		memset(pkt, 0, 250);
+		memset(pkt, 0, 256);
 		sprintf(pkt, SD_PKT, gps.hour, gps.min, gps.sec, DEVICE_MAC, gps.alt, gps.lat, gps.lon, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox);
 		ESP_LOGI(TAG, "%s", pkt);
 
-		printf("free heap (sd2): %d\n",esp_get_free_heap_size());
 		sd_write_data(pkt, gps.year, gps.month, gps.day);
-		printf("free heap (sd3): %d\n",esp_get_free_heap_size());		
-
-		int a = uxTaskGetStackHighWaterMark(NULL);
-		printf("stack highwater mark: %d\n", a);
 	}
 }
 
@@ -343,16 +335,12 @@ void app_main()
 {
 //	esp_log_level_set("*", ESP_LOG_INFO);
 
-	printf("free heap (init 0): %d\n",esp_get_free_heap_size());
-
 	/* initialize flash memory */
 	nvs_flash_init();
 
 	uint8_t tmp[6];
 	esp_efuse_mac_get_default(tmp);
 	sprintf(DEVICE_MAC, "%02X%02X%02X%02X%02X%02X", tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5]);
-
-	printf("\nMAC Address: %s\n\n", DEVICE_MAC);
 
 	/* Initialize the LED Driver */
 	LED_Initialize();
@@ -368,8 +356,6 @@ void app_main()
 
 	/* Initialize the MICS Driver */
 	MICS4514_Initialize();
-
-	printf("free heap (init 1): %d\n",esp_get_free_heap_size());
 
 	/* start the watchdog task */
 	xTaskCreate(&watchdog_task, "watchdog_task", 4000, NULL, 2, &task_watchdog);
