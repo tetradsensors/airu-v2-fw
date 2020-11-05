@@ -1,3 +1,4 @@
+NOTE: This is the old repository for V2 Code. It uses ESP-IDF V3.3
 # AirU V2 Repository
 
 # Workspace Setup
