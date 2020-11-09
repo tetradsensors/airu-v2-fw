@@ -2,3 +2,6 @@
 build/
 .DS_Store
 .settings/
+server_certs/
+server_certs
+server_certs/*
