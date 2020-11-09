@@ -374,7 +374,7 @@ void mqtt_task(void* pvParameters){
 			MQTT_Publish(mqtt_state_topic, current_state);
 			loop_counter++;
 		}
-		vTaskDelay(10000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
+		vTaskDelay(60000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
 	} // End while(1)
 	esp_restart();									// Restart if exit the while loop
 }
