@@ -35,7 +35,7 @@
 
 
 // #define WIFI_CONNECTED_BIT 	BIT0
-#define RECONNECT_SECONDS 82800		// Frequency to reconnect to Google IoT (82800 = 23 hours) JWT expires at 24 hours
+#define RECONNECT_SECONDS 39600		// Frequency to reconnect to Google IoT (82800 = 23 hours) JWT expires at 24 hours
 #define KEEPALIVE_TIME 300			// Frequency pingreq is sent to IoT (300 will send a ping every 150 seconds)
 
 static const char *TAG = "MQTT_DATA";
@@ -43,7 +43,7 @@ static TaskHandle_t task_mqtt = NULL;
 static EventGroupHandle_t mqtt_event_group;
 static char DEVICE_MAC[13];
 extern const uint8_t roots_pem_start[] asm("_binary_roots_pem_start");
-extern uint8_t rsaprivate_pem_start[] asm("_binary_rsaprivate_pem_start");
+extern uint8_t rsaprivate_pem_start[] asm("_binary_rsa_private_pem_start");
 static esp_mqtt_client_handle_t client;
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
 char firmware_version[OTA_FILE_BN_LEN];
@@ -58,7 +58,8 @@ char* JWT_PASSWORD;
 
 //*******ENSURE THIS IS CORRECT********************************************************************
 //static const char* PROJECT_ID = "scottgale";
-static const char* PROJECT_ID = "aqandu-184820";
+// static const char* PROJECT_ID = "aqandu-184820";
+static const char* PROJECT_ID = "us-ignite";
 //static const char* PROJECT_ID = "airquality-272118";
 
 //*************************************************************************************************
@@ -263,7 +264,7 @@ void mqtt_task(void* pvParameters){
 	// Generate client_ID . . . includes MAC Address as "IoT Device ID"
 	const char mqtt_client_helper1[] = "projects/";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
-	const char mqtt_client_helper2[] = "/locations/us-central1/registries/airu-sensor-registry/devices/M";
+	const char mqtt_client_helper2[] = "/locations/us-central1/registries/dev-registry/devices/M";
 	//const char mqtt_client_helper2[] = "/locations/us-central1/registries/airquality/devices/M";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
 	snprintf(client_ID, sizeof(client_ID), "%s%s%s%s", mqtt_client_helper1, PROJECT_ID, mqtt_client_helper2, DEVICE_MAC);
@@ -272,7 +273,7 @@ void mqtt_task(void* pvParameters){
 	// Generate mqtt_topic
 	const char mqtt_topic_helper1[] = "/devices/M";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
-	const char mqtt_topic_helper2[] = "/events/airU";
+	const char mqtt_topic_helper2[] = "/events/airu-dev";
 	//const char mqtt_topic_helper2[] = "/events/data";
 	// ***************************************************ADJUST FOR AIRQUALITY PROJECT*******************************************
 	const char mqtt_topic_helper3[] = "/state";
@@ -344,6 +345,8 @@ void mqtt_task(void* pvParameters){
 				publish_flag = 10;
 			}
 
+			publish_flag = 10;
+
 			printf("publish_flag: %d, ", publish_flag);
 			printf("loop_counter: %d\n", loop_counter);
 
@@ -351,9 +354,10 @@ void mqtt_task(void* pvParameters){
 				publish_flag = 0;							// Reset publish_flag
 				loop_counter = 0;							// Reset loop_counter
 				memset(mqtt_pkt, 0, MQTT_PKT_LEN);			// Clear contents of packet
-				sprintf(mqtt_pkt, "{\"DEVICE_ID\": \"M%s\", \"TIMESTAMP\": %ld, \"PM1\": %.2f, \"PM25\": %.2f, \"PM10\": %.2f, " \
-				"\"TEMP\": %.2f, \"HUM\": %.2f, \"CO\": %d, \"NOX\": %d, \"LAT\": %.4f, \"LON\": %.4f, \"ALT\": %.1f, \"VER\": %.1f}", \
-				DEVICE_MAC, current_time, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox, gps.lat, gps.lon, gps.alt, version_number);
+				sprintf(mqtt_pkt, "{\"Timestamp\":%lu,\"DeviceID\":\"%s\",\"Elevation\":%.1f,\"Latitude\":%.4f,\"Longitude\":%.4f,\"PM1\":%.2f,\"PM2_5\":%.2f,\"PM10\":%.2f," \
+				"\"Temperature\":%.2f,\"Humidity\":%.2f,\"MICS_RED\":%d,\"MICS_OX\":%d,\"MICS_HEATER\":0,\"Uptime\":0," \
+				"\"VersionInfo\":%.1f}", \
+				current_time, DEVICE_MAC, gps.alt, gps.lat, gps.lon, pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, temp, hum, co, nox, version_number);
 
 				MQTT_Publish(mqtt_topic, mqtt_pkt);
 				pub_pm_dat = pm_dat;
@@ -370,7 +374,7 @@ void mqtt_task(void* pvParameters){
 			MQTT_Publish(mqtt_state_topic, current_state);
 			loop_counter++;
 		}
-		vTaskDelay(300000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
+		vTaskDelay(10000 / portTICK_PERIOD_MS);	// Time in milliseconds. 300000 = 5 minutes
 	} // End while(1)
 	esp_restart();									// Restart if exit the while loop
 }

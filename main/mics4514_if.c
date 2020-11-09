@@ -17,6 +17,9 @@
 
 static const char* TAG = "MICS4514";
 static esp_adc_cal_characteristics_t *adc_chars;
+static const adc_channel_t CH_NOX  = ADC_CHANNEL_6;
+static const adc_channel_t CH_RED = ADC_CHANNEL_7;
+static adc_atten_t atten = ADC_ATTEN_DB_0;
 
 static void check_efuse(void);
 static void print_char_val_type(esp_adc_cal_value_t val_type);
@@ -66,13 +69,13 @@ void MICS4514_Initialize(void)
 	check_efuse();
 
 	adc1_config_width(ADC_WIDTH_BIT_12);
-	adc1_config_channel_atten(ADC_CHANNEL_5, ADC_ATTEN_DB_11); 	// Pin 9, GPIO33
-	adc1_config_channel_atten(ADC_CHANNEL_3, ADC_ATTEN_DB_11);	// Pin 5, GPIO39
+	adc1_config_channel_atten(CH_RED, atten); 	// Pin 9, GPIO33
+	adc1_config_channel_atten(CH_NOX, atten);	// Pin 5, GPIO39
 
 	//Characterize ADC
 	adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
 	val_type = esp_adc_cal_characterize(ADC_UNIT_1,
-										ADC_ATTEN_DB_11,
+										atten,
 										ADC_WIDTH_BIT_12,
 										DEFAULT_VREF,
 										adc_chars);
@@ -83,14 +86,14 @@ void MICS4514_Initialize(void)
 /*
  *
  */
-void MICS4514_Poll(uint16_t *ox_val, uint16_t *red_val)
+void MICS4514_Poll(uint32_t *ox_val, uint32_t *red_val)
 {
 	*ox_val = 0;
 	*red_val = 0;
 
 	for (int i = 0; i < NO_OF_SAMPLES; i++) {
-		*ox_val  += adc1_get_raw(ADC_CHANNEL_5);
-		*red_val += adc1_get_raw(ADC_CHANNEL_3);
+		*ox_val  += adc1_get_raw(CH_NOX);
+		*red_val += adc1_get_raw(CH_RED);
 	}
 	*ox_val  /= NO_OF_SAMPLES;
 	*red_val /= NO_OF_SAMPLES;

@@ -147,7 +147,7 @@ static esp_err_t _ota_commence()
     //sprintf(fn_path, "http://air.eng.utah.edu:80/files/updates/%s", ota_file_basename);
     //sprintf(fn_path, "http://storage.googleapis.com/ota_firmware_updates/%s", ota_file_basename);
     //sprintf(fn_path, "http://storage.googleapis.com/aq_firmware/%s", ota_file_basename);		 //FOR airquality
-    sprintf(fn_path, "http://storage.googleapis.com/airquality_firmware/%s", ota_file_basename); //FOR aqandu
+    sprintf(fn_path, "http://storage.googleapis.com/ota_firmware/%s", ota_file_basename); //FOR aqandu
     // UPDATE GCP STORAGE BUCKET PARAMETER ********************************************************************************
 
 
